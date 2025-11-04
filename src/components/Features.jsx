@@ -50,7 +50,7 @@ const BentoCard = ({src, title, description}) => {
                 <div className="">
                     <h1 className="bento-title special-font">{title}</h1>
                     {description && (
-                        <p className="mt-3 max-w-64 text-xs md:text-base">
+                        <p className="mt-3 max-w-64 text-xs md:text-base mix-blend-darken text-white" style={{isolation: 'isolate'}}>
                             {description}
                         </p>
                     )}
@@ -110,7 +110,7 @@ const Features = () => {
 
                 />
             </BentoTilt>
-            <BentoTilt className="bento-tilt_1 me-14 md:col-span-1 md:me-0">
+            <BentoTilt className="bento-tilt_1 me-14 md:col-span-1 md:me-0 mix-blend-difference">
                 <BentoCard
                   src='/videos/feature-4.mp4'
                   title={<>az<b>u</b>l</>}

@@ -18,6 +18,8 @@ const Hero = () => {
   const totalVideos = 4;
   const nextVideoRef = useRef(null)
   const currentVideoRef = useRef(null) 
+const [showWelcomePopup, setShowWelcomePopup] = useState(false);
+
 
   const handleVideoLoad = () => {
     setLoadedVideos((prev) => prev + 1);
@@ -27,6 +29,21 @@ const Hero = () => {
      setCurrentIndex(upcomingVideosIndex);
   }
   
+
+
+const handleClosePopup = () => {
+  setShowWelcomePopup(false);
+  localStorage.setItem('hasVisitedBefore', 'true');
+};
+
+
+useEffect(() => {
+  const hasVisited = localStorage.getItem('hasVisitedBefore');
+  if(!hasVisited) {
+      setShowWelcomePopup(true);
+  }
+}, [])
+
 
 
   useEffect(() => {
@@ -99,6 +116,24 @@ const Hero = () => {
           </div>
         </div>
       )}
+
+
+      {showWelcomePopup && (
+        <div className="fixed inset-0 z-100 flex  items-center justify-center bg-black/50 pt-50">
+          <div className="bg-blue-50 rounded-lg p-8 max-w-md mx-4">
+            <h2 className="text-4xl font-special text-violet-700 font-family-zentry mb-4">welcome! </h2>
+            <p className="mb-6 font-robert-regular">Toggle the audio icon at the top right after the contact
+              navbar  to play our theme song!</p>
+            <button 
+              onClick={handleClosePopup}
+              className="bg-violet-500 text-white px-6 py-2 rounded-4xl hover:bg-violet-700"
+            >
+              Got it!
+            </button>
+          </div>
+        </div>
+      )}      
+
       <div  id="video-frame" className="relative 
       z-10 h-dvh w-screen overflow-hidden rounded-lg
       bg-blue-75">
