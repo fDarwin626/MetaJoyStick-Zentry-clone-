@@ -116,7 +116,9 @@ useEffect(() => {
           </div>
         </div>
       )}
-
+      <div  id="video-frame" className="relative 
+      z-10 h-dvh w-screen overflow-hidden rounded-lg
+      bg-blue-75">
 
       {showWelcomePopup && (
         <div className="fixed inset-0 z-100 flex  items-center justify-center bg-black/50 pt-50">
@@ -135,9 +137,6 @@ useEffect(() => {
         </div>
       )}      
 
-      <div  id="video-frame" className="relative 
-      z-10 h-dvh w-screen overflow-hidden rounded-lg
-      bg-blue-75">
         <div className="">
             <div className="mask-clip-path absolute-center
             absolute z-50 size-64 cursor-pointer rounded-3xl
