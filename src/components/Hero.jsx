@@ -11,21 +11,29 @@ gsap.registerPlugin(ScrollTrigger);
 const CDN_BASE = import.meta.env.VITE_VIDEO_CDN_BASE ?? "/videos";
 const totalVideos = 4;
 
+// Detect mobile once at module level — avoids repeated calls
+const IS_MOBILE = typeof window !== "undefined" &&
+  /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+
 const getVideoAssets = (index) => ({
+  // On mobile serve a low-res 480p version (hero-1-mobile.mp4) if it exists,
+  // otherwise fall back to the normal mp4.
+  // To create mobile versions run:
+  //   ffmpeg -i hero-1.mp4 -vf scale=854:-2 -c:v libx264 -crf 32 -preset fast hero-1-mobile.mp4
   webm:   `${CDN_BASE}/hero-${index}.webm`,
-  mp4:    `${CDN_BASE}/hero-${index}.mp4`,
+  mp4:    IS_MOBILE
+            ? `${CDN_BASE}/hero-${index}-mobile.mp4`   // 480p — loads ~4x faster
+            : `${CDN_BASE}/hero-${index}.mp4`,
   poster: `${CDN_BASE}/hero-${index}-poster.jpg`,
 });
 
 // ─── COMPONENT ─────────────────────────────────────────────────────────────────
-// onReady — called once the minimum videos have loaded; App.jsx uses this
-//           to dismiss the global loading spinner.
 const Hero = ({ onReady }) => {
   const [currentIndex, setCurrentIndex]         = useState(1);
   const [prevIndex, setPrevIndex]               = useState(null);
   const [hasClicked, setHasClicked]             = useState(false);
   const [loadedVideos, setLoadedVideos]         = useState(0);
-  const [nextPreloaded, setNextPreloaded]       = useState(false);
+  const [miniReady, setMiniReady]               = useState(false); // hover preview ready
   const [showWelcomePopup, setShowWelcomePopup] = useState(false);
   const readyFired                              = useRef(false);
 
@@ -41,8 +49,7 @@ const Hero = ({ onReady }) => {
     setLoadedVideos((prev) => prev + 1);
   }, []);
 
-  // Fire onReady once the background + portal videos have loaded (2 videos).
-  // Using a ref guard so it only fires once ever.
+  // Tell App.jsx we're ready after BG + portal video loaded
   useEffect(() => {
     if (loadedVideos >= 2 && !readyFired.current) {
       readyFired.current = true;
@@ -61,73 +68,67 @@ const Hero = ({ onReady }) => {
     localStorage.setItem("hasVisitedBefore", "true");
   };
 
-  // ── Mini hover: lazy-load upcoming ───────────────────────────────────────
+  // ── Mini preview: load on hover (desktop) or immediately (mobile) ─────────
+  // On desktop we lazy-load on hover so we don't waste bandwidth.
+  // On mobile there's no hover, so we load it after the BG video is done.
+  useEffect(() => {
+    if (IS_MOBILE && loadedVideos >= 1) {
+      // slight delay so BG video gets priority
+      const t = setTimeout(() => setMiniReady(true), 3000);
+      return () => clearTimeout(t);
+    }
+  }, [loadedVideos]);
+
   const handleMiniVideoHover = () => {
-    if (!nextPreloaded) setNextPreloaded(true);
+    if (!miniReady) setMiniReady(true);
   };
 
-  // ── Click: start transition ───────────────────────────────────────────────
+  // ── Click / tap: transition ───────────────────────────────────────────────
   const handleMiniVideoClick = () => {
     setPrevIndex(currentIndex);
     setHasClicked(true);
     setCurrentIndex(upcomingVideoIndex);
-    setNextPreloaded(false);
+    setMiniReady(false);
   };
 
   // ── GSAP: warp + crossfade ────────────────────────────────────────────────
   useGSAP(
     () => {
       if (!hasClicked) return;
-
       const tl = gsap.timeline();
 
       gsap.set("#next-video", { visibility: "visible", opacity: 1 });
 
       if (rippleRef.current) {
         gsap.set(rippleRef.current, { scale: 0, opacity: 0.8, display: "block" });
-        tl.to(
-          rippleRef.current,
-          { scale: 5, opacity: 0, duration: 0.85, ease: "power2.out" },
-          0
-        );
+        tl.to(rippleRef.current,
+          { scale: 5, opacity: 0, duration: 0.85, ease: "power2.out" }, 0);
       }
 
-      tl.to(
-        "#next-video",
-        {
-          transformOrigin: "center center",
-          scale: 1,
-          width: "100%",
-          height: "100%",
-          duration: 1,
-          ease: "power3.inOut",
-          onStart: () => nextVideoRef.current?.play(),
-        },
-        0
-      );
+      tl.to("#next-video", {
+        transformOrigin: "center center",
+        scale: 1,
+        width: "100%",
+        height: "100%",
+        duration: 1,
+        ease: "power3.inOut",
+        onStart: () => nextVideoRef.current?.play(),
+      }, 0);
 
-      tl.from(
-        "#current-video",
-        {
-          transformOrigin: "center center",
-          scale: 0,
-          duration: 1.4,
-          ease: "elastic.out(1, 0.65)",
-        },
-        0
-      );
+      tl.from("#current-video", {
+        transformOrigin: "center center",
+        scale: 0,
+        duration: 1.4,
+        ease: "elastic.out(1, 0.65)",
+      }, 0);
 
       if (outgoingBgRef.current) {
-        tl.to(
-          outgoingBgRef.current,
-          {
-            opacity: 0,
-            duration: 0.75,
-            ease: "power1.inOut",
-            onComplete: () => setPrevIndex(null),
-          },
-          0.15
-        );
+        tl.to(outgoingBgRef.current, {
+          opacity: 0,
+          duration: 0.75,
+          ease: "power1.inOut",
+          onComplete: () => setPrevIndex(null),
+        }, 0.15);
       }
     },
     { dependencies: [currentIndex], revertOnUpdate: true }
@@ -162,14 +163,15 @@ const Hero = ({ onReady }) => {
     <div id="lobby" className="relative h-dvh w-screen overflow-x-hidden">
 
       {/* ── Main frame ── */}
+      {/* bg-black: zero white flash if video hasn't painted yet */}
       <div
         id="video-frame"
-        className="relative z-10 h-dvh w-screen overflow-hidden rounded-lg bg-blue-75"
+        className="relative z-10 h-dvh w-screen overflow-hidden rounded-lg bg-black"
       >
 
         {/* ── Welcome popup ── */}
         {showWelcomePopup && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 pt-50">
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50">
             <div className="bg-blue-50 rounded-lg p-8 max-w-md mx-4">
               <h2 className="text-4xl font-special text-violet-700 font-family-zentry mb-4">
                 welcome!
@@ -189,20 +191,21 @@ const Hero = ({ onReady }) => {
         )}
 
         {/*
-          ── LAYER STACK (bottom → top) ──────────────────────────────────────
-            z-[0]  outgoingBg  — old video fading out
-            z-[1]  incomingBg  — new video playing underneath
+          LAYER STACK (bottom → top):
+            z-[0]  outgoingBg  — old video fading out (no flash)
+            z-[1]  incomingBg  — new video already playing underneath
             z-[20] next-video  — portal expanding to fullscreen
-            z-[50] mini        — small clickable preview
-            z-[55] ripple      — warp burst (pointer-events none)
+            z-[50] mini        — hover/tap preview thumbnail
+            z-[55] ripple      — warp burst effect
             z-[40] text / CTA
-          ──────────────────────────────────────────────────────────────────── */}
+        */}
 
-        {/* Outgoing BG */}
+        {/* Outgoing BG — fades out, prevents white gap */}
         {prevAssets && (
           <video
             ref={outgoingBgRef}
-            autoPlay loop muted playsInline preload="auto"
+            autoPlay loop muted playsInline
+            preload="auto"
             poster={prevAssets.poster}
             className="absolute left-0 top-0 size-full object-cover object-center"
             style={{ zIndex: 0 }}
@@ -212,20 +215,25 @@ const Hero = ({ onReady }) => {
           </video>
         )}
 
-        {/* Incoming BG */}
+        {/* Incoming BG — always playing underneath */}
         <video
           key={`bg-${currentIndex}`}
-          autoPlay loop muted playsInline preload="auto"
+          autoPlay loop muted playsInline
+          // On mobile: metadata only — poster shows instantly, browser
+          // starts downloading as soon as bandwidth is free.
+          // On desktop: auto — loads fully for instant playback.
+          preload={IS_MOBILE ? "metadata" : "auto"}
           poster={bgAssets.poster}
           className="absolute left-0 top-0 size-full object-cover object-center"
           style={{ zIndex: 1 }}
           onLoadedData={handleVideoLoad}
         >
-          <source src={bgAssets.webm} type="video/webm" />
-          <source src={bgAssets.mp4}  type="video/mp4"  />
+          {/* WebM first — 60-80% smaller, Chrome/Firefox pick this */}
+          {!IS_MOBILE && <source src={bgAssets.webm} type="video/webm" />}
+          <source src={bgAssets.mp4} type="video/mp4" />
         </video>
 
-        {/* Ripple burst */}
+        {/* Ripple burst overlay */}
         <div
           ref={rippleRef}
           className="absolute-center absolute pointer-events-none"
@@ -241,46 +249,52 @@ const Hero = ({ onReady }) => {
           }}
         />
 
-        {/* Mini preview */}
+        {/* ── Mini preview thumbnail ── */}
         <div>
           <div className="mask-clip-path absolute-center absolute z-50 size-64 cursor-pointer rounded-3xl overflow-hidden">
             <div
-              onMouseEnter={handleMiniVideoHover}
-              onClick={handleMiniVideoClick}
-              className="origin-center scale-50 opacity-0 transition-all duration-500 ease-in hover:scale-100 hover:opacity-100"
+              onMouseEnter={handleMiniVideoHover}   // desktop hover → load + play
+              onClick={handleMiniVideoClick}         // click/tap → transition
+              className="origin-center scale-50 opacity-0 transition-all duration-500
+                         ease-in hover:scale-100 hover:opacity-100"
             >
               <video
-                src={nextPreloaded ? miniAssets.mp4 : undefined}
                 ref={currentVideoRef}
-                loop muted playsInline
-                preload={nextPreloaded ? "metadata" : "none"}
-                poster={miniAssets.poster}
                 id="current-video"
+                loop muted playsInline
+                // Key insight: always set src so the video element exists.
+                // Use poster as visual placeholder until miniReady is true.
+                // Once miniReady → real src loads and autoplays on hover.
+                src={miniReady ? miniAssets.mp4 : undefined}
+                preload={miniReady ? "auto" : "none"}
+                poster={miniAssets.poster}   // ← always shows poster on hover before video loads
+                autoPlay={miniReady}          // autoplay once src is set
                 className="size-64 origin-center scale-150 object-cover object-center"
                 onLoadedData={handleVideoLoad}
               >
-                {nextPreloaded && (
+                {miniReady && (
                   <>
-                    <source src={miniAssets.webm} type="video/webm" />
-                    <source src={miniAssets.mp4}  type="video/mp4"  />
+                    {!IS_MOBILE && <source src={miniAssets.webm} type="video/webm" />}
+                    <source src={miniAssets.mp4} type="video/mp4" />
                   </>
                 )}
               </video>
             </div>
           </div>
 
-          {/* Portal video */}
+          {/* Portal video — expands to fullscreen on click */}
           <video
             key={currentIndex}
             ref={nextVideoRef}
-            loop muted playsInline preload="auto"
-            poster={nextAssets.poster}
             id="next-video"
+            loop muted playsInline
+            preload={IS_MOBILE ? "metadata" : "auto"}
+            poster={nextAssets.poster}
             className="absolute-center invisible absolute z-20 size-64 object-cover object-center"
             onLoadedData={handleVideoLoad}
           >
-            <source src={nextAssets.webm} type="video/webm" />
-            <source src={nextAssets.mp4}  type="video/mp4"  />
+            {!IS_MOBILE && <source src={nextAssets.webm} type="video/webm" />}
+            <source src={nextAssets.mp4} type="video/mp4" />
           </video>
         </div>
 
